@@ -17,7 +17,7 @@ import zipfile
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 sys.path.insert(0, SRC)
 
-from convert import core, docwrite, formats, kinds, markdown, paths, tools  # noqa: E402
+from convert import cli, core, docwrite, formats, kinds, markdown, paths, tools  # noqa: E402
 from convert.errors import ConvertError  # noqa: E402
 
 PNG = base64.b64decode(
@@ -358,6 +358,77 @@ class TestConvertGuards(TempFolderTest):
     def test_an_unavailable_format_says_what_is_missing(self):
         message = core.not_available_message(formats.BY_ID["mp3"])
         self.assertIn("ffmpeg", message)
+
+
+class TestCommandLine(TempFolderTest):
+    """The two outputs a program reads: the menu's table and a run's lines."""
+
+    def test_matrix_is_a_table_of_known_formats(self):
+        import contextlib
+        import io
+        import json
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(cli.main(["--matrix-json"]), 0)
+        matrix = json.loads(buffer.getvalue())
+        self.assertIn("png", matrix)
+        ids = {entry[0] for entries in matrix.values() for entry in entries}
+        for target_id in ids:
+            self.assertIn(target_id, formats.BY_ID)
+        for ext, entries in matrix.items():
+            self.assertEqual(kinds.of("sample." + ext) is not None, True)
+            for target_id, label in entries:
+                self.assertEqual(formats.BY_ID[target_id].label, label)
+
+    def test_matrix_offers_what_the_machine_has(self):
+        import contextlib
+        import io
+        import json
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            cli.main(["--matrix-json"])
+        matrix = json.loads(buffer.getvalue())
+        # Markdown and text need nothing, so they are always there; a format
+        # that needs a missing tool is not.
+        self.assertIn(["html", "HTML"], matrix["md"])
+        self.assertEqual(["pdf-png", "PNG (one per page)"] in matrix.get("pdf", []),
+                         tools.has("pdftoppm"))
+
+    def test_machine_output_is_progress_then_the_path(self):
+        import contextlib
+        import io
+
+        source = write(self.dir, "note.md", "# Title\n\ntext\n")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(cli.main(["--machine", "html", source]), 0)
+        lines = [line for line in buffer.getvalue().splitlines() if line.strip()]
+        self.assertTrue(all(line.startswith("PROGRESS ") for line in lines[:-1]), lines)
+        self.assertTrue(lines[-1].endswith("note.html"), lines)
+        self.assertTrue(os.path.exists(lines[-1]))
+
+    def test_machine_output_reports_a_failure_as_an_error_line(self):
+        import contextlib
+        import io
+
+        source = write(self.dir, "song.mp3", JPEG)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(cli.main(["--machine", "wav", source]), 1)
+        output = buffer.getvalue()
+        self.assertIn("ERROR ", output)
+        self.assertIn("JPEG", output)
+
+    def test_an_unknown_option_says_so(self):
+        import contextlib
+        import io
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(cli.main(["--nonsense"]), 2)
+        self.assertIn("--nonsense", err.getvalue())
 
 
 if __name__ == "__main__":

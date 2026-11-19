@@ -1,32 +1,41 @@
 """The command line, which is also how the desktop integrations call Convert.
 
-    convert mp3 song.m4a notes.wav      # convert to MP3
-    convert --targets clip.mov          # what can this become here?
-    convert --ui photo.heic             # the picker, from a file manager
-    convert --list-targets              # everything, and what is available
+    convert-file mp3 song.m4a notes.wav      # convert to MP3
+    convert-file --targets clip.mov          # what can this become here?
+    convert-file --ui photo.heic             # the picker, from a file manager
+    convert-file --list-targets              # everything, and what is available
+
+The installed command is ``convert-file``, not ``convert``: on Linux ``convert``
+is ImageMagick's, and a converter for files must not take its name.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import signal
 import sys
 
 from . import core, formats, kinds, ui
 from .errors import ConvertError, Stopped
 
 USAGE = """Usage:
-  convert FORMAT FILE...        Convert the files to FORMAT
-  convert --ui FILE...          Choose a format in a window
-  convert --targets FILE...     List the formats these files can become
-  convert --list-targets        List every format, and whether it's available
-  convert --list-extensions     List the file types Convert opens
+  convert-file FORMAT FILE...        Convert the files to FORMAT
+  convert-file --ui FILE...          Choose a format in a window
+  convert-file --targets FILE...     List the formats these files can become
+  convert-file --list-targets        List every format, and whether it's available
+  convert-file --list-extensions     List the file types Convert opens
 
 FORMAT is a target id (mp4-h264, mp3, jpg, pdf-png, font-woff2, ...) or the
 label shown in the picker ("MP4 (H.264)").
 
 Settings come from CONVERT_SETTINGS, or from --settings, as a JSON object:
   {"audioBitrate": 192, "videoQuality": 0.8, "imageQuality": 0.9, "pdfDpi": 300}
-Run "convert --help" for the full list.
+Run "convert-file --help" for the full list.
+
+For a program reading the output (the Files panel does):
+  --machine        print only "PROGRESS n", "ERROR why" and the paths written
+  --matrix-json    every format each source extension can become, as JSON
 """
 
 
@@ -36,7 +45,7 @@ def main(argv=None):
         print(USAGE, end="")
         return 2
 
-    flags = {"ui": False, "quiet": False, "json": False}
+    flags = {"ui": False, "quiet": False, "json": False, "machine": False}
     settings_json = None
     items = []
     i = 0
@@ -57,12 +66,16 @@ def main(argv=None):
         elif arg == "--targets":
             rest = [a for a in argv[i + 1:] if not a.startswith("-")]
             return list_available(rest)
+        elif arg == "--matrix-json":
+            return matrix_json()
         elif arg in ("--ui", "--picker"):
             flags["ui"] = True
         elif arg in ("-q", "--quiet"):
             flags["quiet"] = True
         elif arg == "--json":
             flags["json"] = True
+        elif arg == "--machine":
+            flags["machine"] = True
         elif arg == "--settings":
             i += 1
             if i >= len(argv):
@@ -88,7 +101,7 @@ def main(argv=None):
     except ValueError as e:
         return fail("Those settings can't be used: %s" % e)
 
-    # "convert mp3 a.mp3" -- the first word is the format when it names one.
+    # "convert-file mp3 a.mp3" -- the first word is the format when it names one.
     target = None
     if not flags["ui"]:
         try:
@@ -103,42 +116,87 @@ def main(argv=None):
     if flags["ui"] or ui.available():
         return ui.run(files, settings)
     listed = ", ".join("%s (%s)" % (t.id, t.label) for t in formats.CATALOGUE[:6])
-    return fail("Which format? Name one first, for example: convert mp3 song.wav\n"
-                "Some targets: %s\nRun \"convert --targets %s\" for all of them."
+    return fail("Which format? Name one first, for example: convert-file mp3 song.wav\n"
+                "Some targets: %s\nRun \"convert-file --targets %s\" for all of them."
                 % (listed, os.path.basename(files[0])))
 
 
 def run_cli(files, target, settings, flags):
+    machine = flags["machine"]
     batch = core.Batch(settings)
     progress_shown = False
+    last_percent = [-1]
+
+    def say(text):
+        print(text, flush=True)
 
     def on_file(index, path):
-        if not flags["quiet"]:
-            print("%s \u2192 %s" % (os.path.basename(path), target.label))
+        if not flags["quiet"] and not machine:
+            say("%s \u2192 %s" % (os.path.basename(path), target.label))
 
     def on_progress(fraction):
         nonlocal progress_shown
+        if machine:
+            # One line per whole percent: the Files panel reads these as they
+            # arrive, and the same number twice is a line it has to skip.
+            value = int(fraction * 100)
+            if value != last_percent[0]:
+                last_percent[0] = value
+                say("PROGRESS %d" % value)
+            return
         if flags["quiet"] or not sys.stderr.isatty():
             return
         progress_shown = True
         sys.stderr.write("\r  %3d%%" % int(fraction * 100))
         sys.stderr.flush()
 
+    # Stop is a signal from the terminal (Ctrl-C) and from the Files panel
+    # (SIGTERM to this process). Either way the tool in the middle is what has
+    # to be killed and what was half-written is what has to go -- so the signal
+    # cancels the batch instead of the process dying where it stands.
+    def stop(signum, frame):
+        batch.cancel()
+
+    installed = {}
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            installed[sig] = signal.signal(sig, stop)
+        except (ValueError, OSError):
+            pass
+
     try:
         done, failed = batch.run(files, target, on_file, on_progress)
     except Stopped:
         if progress_shown:
             sys.stderr.write("\n")
-        return fail("Stopped")
+        if machine:
+            say("ERROR Stopped")
+        return 130
     except ConvertError as e:
         if progress_shown:
             sys.stderr.write("\n")
+        if machine:
+            say("ERROR %s" % e)
         return fail(str(e))
+    finally:
+        for sig, handler in installed.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+
     if progress_shown:
         sys.stderr.write("\n")
 
+    if machine:
+        for src, message in batch.failed:
+            say("ERROR %s: %s" % (os.path.basename(src), message))
+        for src, written in batch.done:
+            for path in written:
+                say(path)
+        return 1 if batch.failed else 0
+
     if flags["json"]:
-        import json
         print(json.dumps({
             "target": target.id,
             "written": [{"input": src, "output": out} for src, out in batch.done],
@@ -148,13 +206,29 @@ def run_cli(files, target, settings, flags):
         for src, written in batch.done:
             if not flags["quiet"]:
                 for path in written:
-                    print("   saved as %s" % path)
+                    say("   saved as %s" % path)
         if batch.done and not flags["quiet"]:
-            print("%d file%s converted." % (len(batch.done), "" if len(batch.done) == 1 else "s"))
+            say("%d file%s converted." % (len(batch.done), "" if len(batch.done) == 1 else "s"))
 
     for src, message in batch.failed:
         sys.stderr.write("error: %s: %s\n" % (os.path.basename(src), message))
     return 1 if batch.failed else 0
+
+
+def matrix_json():
+    """What each source extension can become here, for a menu that has only the name.
+
+    A menu built from this can't offer a format the converter would refuse: both
+    sides ask the same machine the same question.
+    """
+    matrix = {}
+    for exts in kinds.EXTENSIONS.values():
+        for ext in sorted(exts):
+            offered = formats.offered_for("sample." + ext)
+            if offered:
+                matrix[ext] = [[t.id, t.label] for t in offered]
+    print(json.dumps(matrix, separators=(",", ":")))
+    return 0
 
 
 def list_targets():
@@ -177,7 +251,7 @@ def list_extensions():
 
 def list_available(files):
     if not files:
-        return fail("Which files? For example: convert --targets photo.heic")
+        return fail("Which files? For example: convert-file --targets photo.heic")
     files = [os.path.abspath(f) for f in files]
     missing = [f for f in files if not os.path.exists(f)]
     if missing:

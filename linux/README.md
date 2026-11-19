@@ -20,7 +20,7 @@ the differences listed under [Differences from the Mac app](#differences-from-th
 
 Nothing is bundled and nothing is downloaded: each format uses the tool you already have. Anything
 missing is **hidden** rather than offered and broken, and installing it later works without restarting
-Convert (`convert --list-targets` shows what's available right now).
+Convert (`convert-file --list-targets` shows what's available right now).
 
 ## Install
 
@@ -30,17 +30,21 @@ cd convert
 linux/install.sh
 ```
 
-This copies Convert to `~/.local/share/convert`, puts `convert` in `~/.local/bin`, and adds the
+This copies Convert to `~/.local/share/convert`, puts `convert-file` in `~/.local/bin`, and adds the
 right-click entries for the file managers it finds:
 
 - **Nautilus / Files / Caja / Nemo**: right-click → **Scripts → Convert…**
 - **Dolphin / Konqueror**: right-click → **Actions → Convert…**
-- **Anything else**: `convert --ui FILE…` from a terminal, or add it to your file manager's own
+- **Anything else**: `convert-file --ui FILE…` from a terminal, or add it to your file manager's own
   custom-action menu with that command. The app also appears in your application menu, where you can
   pass files to it.
 
-`~/.local/bin` has to be in your `PATH` (it usually is; if `convert --version` says "command not found",
-add `export PATH="$HOME/.local/bin:$PATH"` to your shell's start-up file).
+`~/.local/bin` has to be in your `PATH` (it usually is; if `convert-file --version` says "command not
+found", add `export PATH="$HOME/.local/bin:$PATH"` to your shell's start-up file).
+
+The command is **`convert-file`**, not `convert`: on Linux `convert` is ImageMagick's, and a file
+converter that took that name would break every script that calls `convert in.png out.jpg`. Use
+`convert-file` wherever the examples below say so; the right-click entries don't care about the name.
 
 Options: `linux/install.sh --prefix /usr/local` installs there instead (`sudo` then), and
 `--no-integration` skips the file-manager entries.
@@ -50,19 +54,20 @@ To uninstall: `linux/uninstall.sh` (or `linux/uninstall.sh --prefix /usr/local`)
 ## Using it
 
 ```bash
-convert mp3 song.opus                 # convert one file
-convert jpg photo.heic shot.png       # several files, one format
-convert --ui *.heic                   # the picker, like the right-click entry
-convert --targets clip.mov            # what can this become on this machine?
-convert --list-targets                # every format, and whether it's available
+convert-file mp3 song.opus                 # convert one file
+convert-file jpg photo.heic shot.png       # several files, one format
+convert-file --ui *.heic                   # the picker, like the right-click entry
+convert-file --targets clip.mov            # what can this become on this machine?
+convert-file --list-targets                # every format, and whether it's available
+convert-file --matrix-json                 # the same list per extension, as JSON
 ```
 
 Settings come from `CONVERT_SETTINGS`, or `--settings`, using the Mac app's names:
 
 ```bash
-CONVERT_SETTINGS='{"audioBitrate": 192}' convert mp3 song.flac
-convert --settings '{"videoQuality": 0.8, "hardware": false}' mp4-h264 clip.mov
-convert --settings '{"pdfDpi": 300}' pdf-png scan.pdf
+CONVERT_SETTINGS='{"audioBitrate": 192}' convert-file mp3 song.flac
+convert-file --settings '{"videoQuality": 0.8, "hardware": false}' mp4-h264 clip.mov
+convert-file --settings '{"pdfDpi": 300}' pdf-png scan.pdf
 ```
 
 | Setting | Default | What it does |

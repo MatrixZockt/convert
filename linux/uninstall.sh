@@ -28,7 +28,7 @@ remove() {
 }
 
 remove "$SHARE"
-remove "$PREFIX/bin/convert"
+remove "$PREFIX/bin/convert-file"
 remove "$PREFIX/share/applications/convert.desktop"
 remove "$PREFIX/share/icons/hicolor/256x256/apps/convert.png"
 remove "$DATA/nautilus/scripts/Convert…"

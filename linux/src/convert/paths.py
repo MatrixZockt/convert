@@ -173,7 +173,13 @@ def try_delete(path):
 
 
 def temp_root():
-    return os.path.join(tempfile.gettempdir(), "convert")
+    """This user's scratch folder, with the uid in it.
+
+    Not plain ``/tmp/convert``: a folder called ``convert`` is a checkout of this
+    very project often enough, and working files must never appear inside one.
+    """
+    uid = getattr(os, "getuid", lambda: 0)()
+    return os.path.join(tempfile.gettempdir(), "convert-%d" % uid)
 
 
 def temp_dir():

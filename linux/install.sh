@@ -28,7 +28,11 @@ case "$PREFIX" in *'"'*) echo "install.sh: --prefix can't contain a double quote
 case "$PREFIX" in /*) ;; *) PREFIX="$(cd "$PREFIX" 2>/dev/null && pwd || { mkdir -p "$PREFIX" && cd "$PREFIX" && pwd; })" ;; esac
 
 SHARE="$PREFIX/share/convert"
-BIN="$PREFIX/bin/convert"
+# NOT `convert`: on Linux that name belongs to ImageMagick (Debian, Ubuntu,
+# Fedora, Arch and openSUSE all ship it), and a converter that shadows it
+# breaks every script that calls `convert in.png out.jpg`. The suffix is also
+# what the old hand-written helper was called, so nothing to relearn.
+BIN="$PREFIX/bin/convert-file"
 APPS="$PREFIX/share/applications"
 ICONS="$PREFIX/share/icons/hicolor/256x256/apps"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -129,9 +133,9 @@ if [ -n "$missing" ]; then
   say "not installed:$missing"
   say "Convert hides the formats that need them; install them whenever you like."
 fi
-python3 -c 'import fontTools' 2>/dev/null || say "fontTools is not installed (only needed for fonts): python3 -m pip install --user fonttools brotli"
+  python3 -c 'import fontTools' 2>/dev/null || say "fontTools is not installed (only needed for fonts): python3 -m pip install --user fonttools brotli"
 echo
-say "done. Run: convert --list-targets"
+say "done. Run: convert-file --list-targets"
 case ":$PATH:" in
   *":$PREFIX/bin:"*) ;;
   *) say "note: $PREFIX/bin is not in your PATH; add it with: export PATH=\"$PREFIX/bin:\$PATH\"" ;;
