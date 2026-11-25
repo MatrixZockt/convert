@@ -66,6 +66,10 @@ elif have ffmpeg; then
     && samples+=("$OUT/photo.png")
 fi
 
+# A self-contained SVG (drawn by rsvg-convert, never by ImageMagick).
+printf '<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"><rect width="64" height="48" fill="#3a7"/><circle cx="32" cy="24" r="16" fill="#fff"/></svg>\n' > "$OUT/icon.svg"
+samples+=("$OUT/icon.svg")
+
 printf '# Title\n\nSome **bold** text and a [link](https://example.com).\n\n- one\n- two\n\n```\ncode here\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n' > "$OUT/note.md"
 samples+=("$OUT/note.md")
 printf 'plain text, first line\nsecond line\n\nsecond paragraph\n' > "$OUT/note.txt"
@@ -148,7 +152,7 @@ if [ -f "$OUT/note.pdf" ]; then
   check "md -> pdf is A4" "$OUT/note.pdf" bash -c "pdfinfo '$OUT/note.pdf' | grep -q 'A4'"
   check "md -> pdf has the text" "$OUT/note.pdf" bash -c "pdftotext '$OUT/note.pdf' - | grep -q 'Title'"
 fi
-if [ -f "$OUT/text.pdf" ]; then
+if [ -f "$OUT/text.pdf" ] && have pdfinfo; then
   check "sample pdf has 2 pages" "$OUT/text.pdf" bash -c "pdfinfo '$OUT/text.pdf' | grep -q 'Pages:.*2'"
 fi
 if [ -f "$OUT/text.docx" ]; then
@@ -174,6 +178,20 @@ if [ -f "$OUT/tone.mp3" ]; then
 fi
 if [ -f "$OUT/font.woff2" ]; then
   check "ttf -> woff2 is WOFF2" "$OUT/font.woff2" bash -c "head -c 4 '$OUT/font.woff2' | grep -q wOF2"
+fi
+
+if [ -f "$OUT/icon.png" ]; then
+  check "svg -> png is PNG" "$OUT/icon.png" bash -c "file '$OUT/icon.png' | grep -q 'PNG image'"
+fi
+# An SVG that points outside itself must be refused, not drawn.
+if have rsvg-convert; then
+  printf '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="8" height="8"><image xlink:href="file:///etc/hostname" width="8" height="8"/></svg>\n' > "$OUT/linked.svg"
+  if "$PYTHON" -m convert png "$OUT/linked.svg" >/dev/null 2>&1 || [ -e "$OUT/linked.png" ]; then
+    printf 'FAIL  an SVG linking to a local file was converted\n'
+    fail=$((fail + 1)); failed+=("linked.svg: converted, should have been refused")
+  else
+    echo "ok    an SVG linking to a local file is refused"
+  fi
 fi
 
 # Nothing half-written may be left behind.

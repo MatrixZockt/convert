@@ -33,8 +33,9 @@ There is no build step and no dependency: it is a Python package that runs where
 | `tools.py` | `Process.swift`, `Tools.cs` | Finding the tools, asking what they can do, running one, Stop |
 | `paths.py` | `Paths.swift` | Output names, the Downloads fallback, temp folders |
 | `media.py` | `FFmpeg.swift` | ffmpeg arguments, and which GPU encoder works |
-| `images.py` | `ImageConv.swift` | Images, through ImageMagick |
+| `images.py` | `ImageConv.swift` | Images, through ImageMagick (decoder named, own policy in `magick/`); SVG through `rsvg-convert` |
 | `docs.py`, `markdown.py` | `DocConv.swift`, `Markdown.swift` | Documents: LibreOffice, browser printing, Markdown → HTML |
+| `htmlclean.py` | `DocBrowser.cs` (`CleanScript`) | HTML made safe to print or hand to LibreOffice |
 | `pdfs.py`, `docwrite.py` | `DocConv.swift`, `PDFText.swift`, `DocWriter*.cs` | PDF → images, text, Word/ODT/RTF |
 | `fonts.py` | `FontConv.swift`, `SFNT.swift`, `WOFF.swift`, `WOFF2.swift` | Fonts, through fontTools |
 | `core.py` | `Converter.swift` | One conversion, and a batch of them |

@@ -136,6 +136,7 @@ missing=""
 command -v ffmpeg >/dev/null 2>&1 || missing="$missing ffmpeg"
 { command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; } || missing="$missing imagemagick"
 command -v pdftoppm >/dev/null 2>&1 || missing="$missing poppler-utils"
+command -v rsvg-convert >/dev/null 2>&1 || missing="$missing librsvg2-bin(for SVG)"
 if [ -n "$missing" ]; then
   say "not installed:$missing"
   say "Convert hides the formats that need them; install them whenever you like."

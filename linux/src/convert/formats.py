@@ -203,6 +203,9 @@ def available(target, source_kind=None, source_ext=None):
         return True
 
     if g == IMAGE:
+        # SVG is drawn by rsvg-convert, never by ImageMagick (see images.py).
+        if (source_ext or "").lower() == "svg" and not tools.has("rsvg-convert"):
+            return False
         if target.id == WEBP_WRITE and tools.find("cwebp") and not tools.magick():
             return True  # cwebp alone is enough for WebP
         if not tools.magick():

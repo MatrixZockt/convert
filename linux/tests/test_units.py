@@ -17,7 +17,9 @@ import zipfile
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 sys.path.insert(0, SRC)
 
-from convert import cli, core, docwrite, formats, kinds, markdown, paths, tools  # noqa: E402
+from convert import (  # noqa: E402
+    cli, core, docs, docwrite, formats, htmlclean, images, kinds, markdown, paths, tools,
+)
 from convert.errors import ConvertError  # noqa: E402
 
 PNG = base64.b64decode(
@@ -429,6 +431,195 @@ class TestCommandLine(TempFolderTest):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             self.assertEqual(cli.main(["--nonsense"]), 2)
         self.assertIn("--nonsense", err.getvalue())
+
+
+SVG = (b'<?xml version="1.0" encoding="UTF-8"?>\n'
+       b'<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" '
+       b'"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n'
+       b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+       b'width="10" height="10"><defs><linearGradient id="g"/></defs>'
+       b'<rect width="10" height="10" fill="url(#g)"/><use xlink:href="#g"/>'
+       b'<image href="data:image/png;base64,AAAA"/></svg>\n')
+
+
+class TestSvg(TempFolderTest):
+    """SVG is drawn by rsvg-convert, and only when it refers to nothing outside itself."""
+
+    def test_svg_is_recognised(self):
+        self.assertEqual(kinds.format_of(SVG).ext, "svg")
+        self.assertEqual(kinds.format_of(b"<svg xmlns='http://www.w3.org/2000/svg'/>").ext, "svg")
+        self.assertIsNone(kinds.format_of(b"<!DOCTYPE html><html><body><svg></svg></body></html>"))
+        kinds.verify(write(self.dir, "icon.svg", SVG), kinds.IMAGE)
+
+    def test_a_self_contained_svg_passes(self):
+        images.check_svg(SVG)
+
+    def test_references_outside_the_file_are_refused(self):
+        for bad in (
+            b'<svg><image href="file:///etc/passwd"/></svg>',
+            b'<svg><image xlink:href="text:/home/me/.ssh/id_rsa"/></svg>',
+            b'<svg><image x:href = \'https://example.com/a.png\'/></svg>',
+            b'<svg><use href="other.svg#icon"/></svg>',
+            b'<svg><image href="&#x74;ext:/etc/passwd"/></svg>',
+            b'<svg><rect style="fill:url(http://example.com/p)"/></svg>',
+            b'<svg><style>@import "a.css";</style></svg>',
+            b'<?xml-stylesheet href="a.css"?><svg/>',
+            b'<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg>&x;</svg>',
+            b'<svg xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href=".?../a"/></svg>',
+            b'<svg>\x00</svg>',
+            b'\x1f\x8b\x08\x00',
+        ):
+            with self.assertRaises(ConvertError, msg=bad):
+                images.check_svg(bad)
+
+    def test_svg_needs_rsvg_convert(self):
+        original = tools.find
+        self.addCleanup(setattr, tools, "find", original)
+        tools.find = lambda tool: None if tool == "rsvg-convert" else original(tool)
+        self.assertFalse(formats.available(formats.BY_ID["png"], kinds.IMAGE, "svg"))
+
+
+class TestImageDecoder(unittest.TestCase):
+    """ImageMagick is told the decoder; it never guesses one from the contents."""
+
+    def test_the_name_decides_when_the_contents_say_nothing(self):
+        self.assertEqual(images.decoder_for("tga", b"\x00\x00\x02\x00"), "TGA")
+        self.assertEqual(images.decoder_for("jfif", b""), "JPEG")
+        self.assertEqual(images.decoder_for("hif", b""), "HEIC")
+        self.assertEqual(images.decoder_for("srw", b""), "DNG")
+        # Drawing instructions in a file called .tga are read as a TGA, not drawn.
+        self.assertEqual(images.decoder_for("tga", b"viewbox 0 0 10 10\x01"), "TGA")
+
+    def test_the_contents_win_over_the_name(self):
+        self.assertEqual(images.decoder_for("png", JPEG), "JPEG")
+        self.assertEqual(images.decoder_for("tga", SVG), "SVG")
+        self.assertEqual(images.decoder_for("nef", b"MM\x00*" + b"\x00" * 12), "DNG")
+        self.assertEqual(images.decoder_for("tif", b"II*\x00" + b"\x00" * 12), "TIFF")
+
+    def test_a_pdf_or_a_fake_svg_never_reaches_imagemagick(self):
+        with self.assertRaises(ConvertError):
+            images.decoder_for("png", b"%PDF-1.7\n")
+        with self.assertRaises(ConvertError):
+            images.decoder_for("svg", b"\x01\x02 not xml")
+
+    def test_every_accepted_extension_has_a_decoder(self):
+        for ext in kinds.EXTENSIONS[kinds.IMAGE]:
+            if ext != "svg":
+                self.assertIn(ext, images.DECODER)
+
+
+class TestImageMagickPolicy(TempFolderTest):
+    def test_the_policy_is_read_last_and_only_denies(self):
+        import xml.etree.ElementTree as ET
+
+        env = tools.magick_env({"HOME": "/home/me", "MAGICK_CONFIGURE_PATH": "/somewhere"})
+        self.assertNotIn("MAGICK_CONFIGURE_PATH", env)
+        self.assertEqual(env["XDG_CONFIG_HOME"], tools.MAGICK_GUARD)
+        self.assertEqual(env["HOME"], tools.MAGICK_GUARD)
+        self.assertEqual(env["XDG_CACHE_HOME"], "/home/me/.cache")
+        # Nothing ImageMagick would read after Convert's own policy.
+        self.assertFalse(os.path.exists(os.path.join(tools.MAGICK_GUARD, ".config")))
+        self.assertFalse(os.path.exists(os.path.join(tools.MAGICK_GUARD, ".magick")))
+
+        policy = os.path.join(tools.MAGICK_GUARD, "ImageMagick", "policy.xml")
+        rules = ET.parse(policy).getroot().findall("policy")
+        self.assertTrue(rules)
+        self.assertEqual({r.get("rights") for r in rules}, {"none"})
+        by_domain = {}
+        for rule in rules:
+            by_domain.setdefault(rule.get("domain"), []).append(rule.get("pattern"))
+        self.assertIn("*", by_domain["delegate"])
+        self.assertIn("@*", by_domain["path"])
+        coders = by_domain["coder"][0].strip("{}").split(",")
+        for coder in ("MSL", "MVG", "SVG", "MSVG", "URL", "HTTPS", "TEXT", "EPHEMERAL", "PS"):
+            self.assertIn(coder, coders)
+        self.assertNotIn("XC", coders)   # the write probe draws with it
+        self.assertNotIn("PDF", coders)  # the PDF image target writes it
+
+    def test_every_imagemagick_call_names_the_decoder_and_runs_under_the_policy(self):
+        calls = []
+
+        def fake_run(cmd, runner=None, timeout=None, on_line=None, check=False, env=None):
+            calls.append((cmd, env))
+            with open(cmd[-1], "wb") as f:
+                f.write(b"out")
+            return (0, "", "")
+
+        for name, value in (("run", fake_run), ("magick", lambda: "/usr/bin/magick"),
+                            ("find", lambda tool: None)):
+            self.addCleanup(setattr, tools, name, getattr(tools, name))
+            setattr(tools, name, value)
+        source = write(self.dir, "photo.png", JPEG)
+        images.convert(source, formats.BY_ID["tiff"], formats.Settings(), tools.Runner(),
+                       lambda f: None)
+        self.assertEqual(len(calls), 1)
+        cmd, env = calls[0]
+        self.assertTrue(any(a.startswith("JPEG:") and a.endswith("input.png[0]") for a in cmd), cmd)
+        self.assertEqual(env["XDG_CONFIG_HOME"], tools.MAGICK_GUARD)
+
+
+class TestHtmlCleaning(unittest.TestCase):
+    PAGE = (
+        "﻿<!DOCTYPE html><html><head>"
+        '<meta http-equiv="refresh" content="0;url=http://e.example"><base href="http://e.example/">'
+        '<link rel="stylesheet" href="http://e.example/a.css"><title>T</title>'
+        "<style>@import url(http://e.example/x.css); body{background:url('file:///etc/passwd');"
+        "color:red} @font-face{font-family:x;src:url(http://e.example/f.woff)}</style>"
+        "<style>p{background:u\\72l(http://e.example)}</style>"
+        '</head><body onload="go()"><h1 ONCLICK="x" style="color:blue;background:url(http://e)">Hi</h1>'
+        "<SCRIPT >alert(1)</SCRIPT ><script/x>bad()</script>"
+        '<img src="x" onerror="fetch(\'http://1.2.3.4\')"><img src="data:image/png;base64,AAAA">'
+        '<iframe src="file:///etc/passwd"><p>inner</p></iframe><object data="x"><embed src="y"></object>'
+        '<svg><image xlink:href="file:///etc/passwd"/><script>x()</script></svg>'
+        '<a href="javascript:alert(1)">js</a><a href="#s">in</a><a href="https://ok.example/">web</a>'
+        '<a href="file:///home">f</a><form action="http://e"><input type="image" src="x"></form>'
+        '<video poster="x"><source src="y"></video><noscript><img src="http://e"></noscript>'
+        "<p>2 &gt; 1 &amp; &lt;b&gt;</p></body></html>"
+    )
+
+    def setUp(self):
+        self.out = htmlclean.clean(self.PAGE, '<meta charset="utf-8">')
+        self.lower = self.out.lower()
+
+    def test_nothing_that_runs_or_loads_is_left(self):
+        for gone in ("<script", "alert", "bad()", "<iframe", "inner", "<object", "<embed",
+                     "<link", "<base", "refresh", "<video", "<source", "<noscript",
+                     "onload", "onclick", "onerror", "javascript:", "file:", "http://e",
+                     "1.2.3.4", "@import", "@font-face", "url(", "xlink:href", "poster",
+                     "action="):
+            self.assertNotIn(gone, self.lower)
+
+    def test_words_and_web_links_stay(self):
+        self.assertIn("<h1", self.out)
+        self.assertIn(">Hi</h1>", self.out)
+        self.assertIn('href="https://ok.example/"', self.out)
+        self.assertIn('href="#s"', self.out)
+        self.assertIn('src="data:image/png;base64,AAAA"', self.out)
+        self.assertIn("color:red", self.out)
+        self.assertIn("2 &gt; 1 &amp; &lt;b&gt;", self.out)
+
+    def test_convert_head_goes_first_in_head_after_the_doctype(self):
+        self.assertTrue(self.out.startswith("<!DOCTYPE html>"))
+        self.assertIn('<head><meta charset="utf-8">', self.out)
+        self.assertEqual(self.out.count("<meta"), 1)
+
+    def test_a_page_without_head_still_gets_it(self):
+        out = htmlclean.clean("<p>hello</p>", "<style>X</style>")
+        self.assertTrue(out.startswith("<style>X</style><p>"), out)
+        self.assertEqual(htmlclean.clean("just text", "<i></i>"), "<i></i>just text")
+
+    def test_escaped_css_is_dropped_whole(self):
+        self.assertEqual(htmlclean.clean_css("a{background:u\\72l(x)}"), "")
+        self.assertEqual(htmlclean.clean_css("a{color:red}"), "a{color:red}")
+
+    def test_html_for_libreoffice_is_cleaned_in_its_own_folder(self):
+        work = tempfile.mkdtemp(prefix="convert-test-")
+        self.addCleanup(shutil.rmtree, work, True)
+        staged = write(work, "input.html", self.PAGE)
+        feed = docs._cleaned_feed(staged, work)
+        self.assertNotEqual(os.path.dirname(feed), work)
+        with open(feed, encoding="utf-8") as f:
+            self.assertNotIn("<script", f.read().lower())
 
 
 if __name__ == "__main__":

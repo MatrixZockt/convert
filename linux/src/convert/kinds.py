@@ -8,6 +8,8 @@ renamed to the wrong extension all the time).
 
 from __future__ import annotations
 
+import re
+
 AUDIO = "audio"
 VIDEO = "video"
 IMAGE = "image"
@@ -230,7 +232,28 @@ def format_of(d):
         return Format("an old Microsoft Office document", None, {DOCUMENT, IMAGE})
     if _at(head, 0, 0x50, 0x4B, 0x03, 0x04):
         return Format("a ZIP archive or Office document", None, _DOCUMENT)
+    if is_svg(d):
+        return Format("an SVG image", "svg", _IMAGE)
     return None
+
+
+_SVG_ELEMENT = re.compile(rb"<svg[\s>]")
+_HTML_ELEMENT = re.compile(rb"<html[\s>]", re.I)
+
+
+def is_svg(d):
+    """An SVG: XML text whose first element, within the first bytes, is <svg>."""
+    text = d[:HEADER_LENGTH]
+    if text.startswith(b"\xef\xbb\xbf"):
+        text = text[3:]
+    text = text.lstrip()
+    if text.startswith(b"<svg"):
+        return True
+    if text[:9].lower() == b"<!doctype" and not text[:13].lower() == b"<!doctype svg":
+        return False
+    if not (text.startswith((b"<?xml", b"<!--")) or text[:9].lower() == b"<!doctype"):
+        return False
+    return _SVG_ELEMENT.search(text) is not None and _HTML_ELEMENT.search(text) is None
 
 
 HEADER_LENGTH = 4096

@@ -8,9 +8,11 @@ None of those exist here, so the work is split by what each format needs:
   thing on a normal system that can read a ``.docx``.
 * **Markdown, plain text and HTML to PDF** -- a Chromium-family browser printing
   the page, which is what ``DocBrowser`` does on Windows with WebView2. The
-  browser is told to resolve no names (``MAP * ~NOTFOUND``) and to run no
-  scripts, so a document cannot make the machine talk to anyone: Convert's
-  promise is that nothing leaves it.
+  browser resolves no names and gets a proxy that isn't there, and an HTML
+  file is cleaned first (``htmlclean``: no scripts, frames, objects, stylesheet
+  links, event handlers or CSS ``url()``s), so a document cannot make the
+  machine talk to anyone: Convert's promise is that nothing leaves it. HTML
+  handed to LibreOffice is cleaned the same way.
 * **A PDF's text to Word / ODT / RTF** -- Convert writes those files itself
   (``docwrite``), because the point of "text only" is the paragraphs, not a
   layout a converter would try to rebuild.
@@ -24,7 +26,7 @@ import re
 import shutil
 import urllib.parse
 
-from . import markdown, paths, tools
+from . import htmlclean, markdown, paths, tools
 from .errors import ConvertError
 
 OFFICE = "soffice"
@@ -107,16 +109,14 @@ def _html_page(staged, ext, original, work, paper_a4=True):
                 "monospace\">%s</pre>" % html.escape(text, quote=False))
         page = markdown.page(body, title, paper_a4)
     else:
-        # HTML goes in as it is, with its own title kept when it has one. The
-        # paper size is still Convert's to decide, so a page rule is added --
-        # a document that sets its own @page keeps it, since later rules win.
+        # HTML goes in cleaned (htmlclean), with its own title kept when it has
+        # one. The paper size is still Convert's to decide, so a page rule is
+        # added at the start of <head> -- a document that sets its own @page
+        # keeps it, since later rules win.
         with open(staged, "r", encoding="utf-8", errors="replace") as f:
             source = f.read()
-        # Printing a document doesn't mean running its scripts. They are taken
-        # out here rather than trusted to the browser's flags.
-        source = _SCRIPT_ELEMENT.sub("", source)
         rule = "<style>@page { size: %s; margin: 20mm; }</style>" % markdown.PAPER[bool(paper_a4)]
-        source = source.replace("</head>", rule + "</head>", 1) if "</head>" in source else rule + source
+        source = htmlclean.clean(source, _CHARSET + rule)
         out = os.path.join(work, "page.html")
         with open(out, "w", encoding="utf-8") as f:
             f.write(source)
@@ -249,8 +249,27 @@ def _to_office(staged, ext, target_ext, work, runner):
         page = _html_page(staged, ext, staged, work)
         return office_convert(page, target_ext, work, runner)
     if ext in ("html", "htm"):
-        return office_convert(staged, target_ext, work, runner)
+        return office_convert(_cleaned_feed(staged, work), target_ext, work, runner)
     raise ConvertError("This kind of document can't be converted to that format")
+
+
+_CHARSET = '<meta charset="utf-8">'
+
+
+def _cleaned_feed(staged, work):
+    """An HTML file cleaned for LibreOffice, which would otherwise load what it links to.
+
+    In a folder of its own, so the file LibreOffice writes next to the
+    others (``document.<ext>``) can never be this one.
+    """
+    with open(staged, "r", encoding="utf-8", errors="replace") as f:
+        source = f.read()
+    folder = os.path.join(work, "feed")
+    os.makedirs(folder, exist_ok=True)
+    feed = os.path.join(folder, "document.html")
+    with open(feed, "w", encoding="utf-8") as f:
+        f.write(htmlclean.clean(source, _CHARSET))
+    return feed
 
 
 def _to_html(staged, ext, work, runner):
@@ -269,6 +288,8 @@ def _to_html(staged, ext, work, runner):
             f.write(markdown.page("<pre>%s</pre>" % html.escape(text, quote=False),
                                   paths.stem(staged)))
         return out
+    if ext in ("html", "htm"):
+        return office_convert(_cleaned_feed(staged, work), "html", work, runner)
     return office_convert(staged, "html", work, runner)
 
 
@@ -296,7 +317,6 @@ def _to_text(staged, ext, work, runner):
 
 # ── HTML's words ─────────────────────────────────────────────────────────
 
-_SCRIPT_ELEMENT = re.compile(r"<script\b[^>]*>.*?</script\s*>", re.I | re.S)
 _BLOCK = re.compile(r"</(p|div|h[1-6]|li|tr|blockquote|pre)>", re.I)
 _BREAK = re.compile(r"<br\s*/?>", re.I)
 _SCRIPT = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.I | re.S)

@@ -31,6 +31,8 @@ _CANDIDATES = {
     "convert": ["convert"],
     "cwebp": ["cwebp"],
     "dwebp": ["dwebp"],
+    # librsvg's renderer: SVG never goes to ImageMagick (see images.py).
+    "rsvg-convert": ["rsvg-convert"],
     # Any Chromium-family browser can print a page to PDF. Brave and Chrome are
     # preferred because they are the ones this gets tested against.
     "chrome": [
@@ -56,6 +58,30 @@ def has(tool):
 def magick():
     """The command that converts an image: ImageMagick 7's `magick`, else 6's `convert`."""
     return find("magick") or find("convert")
+
+
+# The folder holding Convert's ImageMagick policy, as ImageMagick/policy.xml.
+MAGICK_GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "magick")
+
+
+def magick_env(base=None):
+    """The environment every ImageMagick call runs with: Convert's policy read last.
+
+    ImageMagick reads policy.xml from $MAGICK_CONFIGURE_PATH, then the system's
+    folder, then $XDG_CONFIG_HOME/ImageMagick, then ~/.config/ImageMagick (and
+    ~/.magick on 6), and the last matching rule wins. Pointing XDG_CONFIG_HOME
+    at Convert's folder, and HOME at the same folder (which has no .config or
+    .magick in it), makes Convert's policy the last one read, so nothing can
+    undo its denials. The cache stays the user's own, so nothing is written
+    into the installed package.
+    """
+    env = dict(os.environ if base is None else base)
+    real_home = env.get("HOME") or os.path.expanduser("~")
+    env.setdefault("XDG_CACHE_HOME", os.path.join(real_home, ".cache"))
+    env.pop("MAGICK_CONFIGURE_PATH", None)
+    env["XDG_CONFIG_HOME"] = MAGICK_GUARD
+    env["HOME"] = MAGICK_GUARD
+    return env
 
 
 # ── What a tool can do, asked once per installed copy ────────────────────
@@ -115,8 +141,9 @@ def magick_writes(ext):
             src = os.path.join(tmp, "probe.png")
             dst = os.path.join(tmp, "probe." + ext)
             try:
-                run([exe, "-size", "2x2", "xc:white", src], timeout=20)
-                run([exe, src, dst], timeout=30)
+                env = magick_env()
+                run([exe, "-size", "2x2", "xc:white", src], timeout=20, env=env)
+                run([exe, "png:" + src, dst], timeout=30, env=env)
             except ConvertError:
                 return False
             try:
@@ -214,7 +241,7 @@ def _kill_tree(proc):
                 pass
 
 
-def run(cmd, runner=None, timeout=None, on_line=None, check=False):
+def run(cmd, runner=None, timeout=None, on_line=None, check=False, env=None):
     """Run a command to completion and return ``(code, stdout, stderr)``.
 
     The tool's error output is kept whole (up to 64 KB, so a chatty decoder
@@ -231,6 +258,7 @@ def run(cmd, runner=None, timeout=None, on_line=None, check=False):
             errors="replace",
             # Its own process group, so Stop can take the whole tree.
             start_new_session=True,
+            env=env,
         )
     except (OSError, ValueError) as e:
         raise ConvertError("Couldn't start %s: %s" % (os.path.basename(str(cmd[0])), e))

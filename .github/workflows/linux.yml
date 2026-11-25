@@ -33,13 +33,14 @@ jobs:
 
       - name: Install the tools the formats use
         # ffmpeg: audio and video. ImageMagick: images. poppler-utils: PDFs. webp: cwebp.
+        # librsvg2-bin: rsvg-convert, which draws SVG.
         # LibreOffice: Word, ODT, RTF and PDF from documents. fontTools: fonts.
         # The browser is left out on purpose: a runner has no Chromium in apt, and everything that
         # would use it has a LibreOffice path that CI does cover.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ffmpeg imagemagick poppler-utils webp libreoffice-writer fonts-dejavu-core
+            ffmpeg imagemagick poppler-utils webp librsvg2-bin libreoffice-writer fonts-dejavu-core
           python3 -m pip install --user fonttools brotli
           # ImageMagick's policy XML denies PDF in some images; report it rather than hide the
           # failure. Convert hides the format when it can't write, so this is information only.

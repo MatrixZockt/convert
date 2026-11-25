@@ -14,6 +14,7 @@ the differences listed under [Differences from the Mac app](#differences-from-th
 - **poppler-utils** for PDFs (page images, text, Word): `sudo apt install poppler-utils`
 - **LibreOffice** for Word, ODT and RTF documents: `sudo apt install libreoffice-writer`
 - **`cwebp`** for WebP (optional -- ImageMagick also writes it): `sudo apt install webp`
+- **`rsvg-convert`** for SVG files (optional): `sudo apt install librsvg2-bin`
 - **fontTools** for fonts: `python3 -m pip install --user fonttools brotli`
 - A **Chromium-based browser** (Chrome, Chromium, Brave or Edge) for Markdown, text and HTML → PDF,
   if LibreOffice isn't installed
@@ -95,13 +96,22 @@ read-only (a mounted ISO, a read-only share).
 | Kind | Tool | Notes |
 |---|---|---|
 | Audio & video | `ffmpeg` | NVENC, QSV or AMF hardware encoding when the GPU is really there; software otherwise, and a failed hardware encode is retried in software |
-| Images | ImageMagick (`magick` or `convert`), `cwebp` for WebP | HEIC, AVIF and PDF are offered only when this ImageMagick can write them |
+| Images | ImageMagick (`magick` or `convert`), `cwebp` for WebP, `rsvg-convert` for SVG | HEIC, AVIF and PDF are offered only when this ImageMagick can write them |
 | Documents | LibreOffice for Word/ODT/RTF; a Chromium browser for Markdown, text and HTML → PDF | LibreOffice runs with a throwaway profile, so your own documents and settings are never touched |
 | PDF | `pdftoppm` for pages, `pdftotext` for text, Convert itself for Word/ODT/RTF | |
 | Fonts | `fontTools` | |
 
-Documents are printed with the browser told to resolve **no** hostnames, so a document can't make
-Convert fetch anything, and any `<script>` in an HTML file is removed before printing rather than run.
+Documents are printed with the browser told to resolve **no** hostnames and given a proxy that isn't
+there, and LibreOffice gets the same dead proxy, so a document can't make Convert fetch anything. An
+HTML file is also cleaned before it is printed or handed to LibreOffice: scripts, frames, embedded
+objects, stylesheet links, `<meta>` and `<base>`, event handlers and CSS `url()`s are taken out.
+
+Images: ImageMagick is always told which decoder to use rather than left to guess from the contents,
+and runs under Convert's own policy (`src/convert/magick/ImageMagick/policy.xml`), read after the
+system's so it can only add restrictions: no external programs, no network, and none of the coders
+that draw or read what a file tells them to (SVG, MVG, MSL, text, PostScript). SVG files never reach
+ImageMagick: they're drawn by `rsvg-convert`, and only when they refer to nothing outside themselves
+(an SVG that links to another file or a web address is refused).
 
 ## Differences from the Mac app
 
