@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import tempfile
 import time
 import uuid
@@ -144,17 +145,20 @@ def move_into_place(source, dest):
     _fix_permissions(dest)
 
 
+# Read once, at import, while nothing else runs: os.umask can only be read by setting it.
+_UMASK = os.umask(0o022)
+os.umask(_UMASK)
+
+
 def _fix_permissions(path):
-    """Give the new file its folder's permissions.
+    """Give the new file the mode any new file of this user's gets (0644 with the usual umask).
 
     A file made in a temp folder arrives as 0600, and a converted document the
     user then can't open from another account (or from a shared folder) is not
-    a finished conversion.
+    a finished conversion. Never the folder's bits: those include x.
     """
     try:
-        folder = os.path.dirname(path)
-        mode = os.stat(folder).st_mode & 0o777
-        os.chmod(path, mode | 0o600)
+        os.chmod(path, (0o666 & ~_UMASK) | 0o600)
     except OSError:
         pass
 
@@ -179,7 +183,22 @@ def temp_root():
     very project often enough, and working files must never appear inside one.
     """
     uid = getattr(os, "getuid", lambda: 0)()
-    return os.path.join(tempfile.gettempdir(), "convert-%d" % uid)
+    root = os.path.join(tempfile.gettempdir(), "convert-%d" % uid)
+    # /tmp is shared with every other account: the folder must be this user's
+    # own and closed to the others, or they could read (or swap) the copies of
+    # documents that pass through it.
+    try:
+        os.mkdir(root, 0o700)
+    except FileExistsError:
+        pass
+    except OSError as e:
+        raise ConvertError("Couldn't create the temp folder %s: %s" % (root, e.strerror or e))
+    info = os.lstat(root)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid:
+        raise ConvertError("%s isn't Convert's own temp folder; remove it and try again" % root)
+    if info.st_mode & 0o077:
+        os.chmod(root, 0o700)
+    return root
 
 
 def temp_dir():
@@ -187,7 +206,7 @@ def temp_dir():
     root = temp_root()
     sweep_once(root)
     path = os.path.join(root, uuid.uuid4().hex)
-    os.makedirs(path, exist_ok=True)
+    os.mkdir(path, 0o700)
     return path
 
 

@@ -8,4 +8,4 @@ X-KDE-Priority=TopLevel
 [Desktop Action convert]
 Name=Convert…
 Icon=convert
-Exec=__CONVERT__ --ui %F
+Exec="__CONVERT__" --ui %F

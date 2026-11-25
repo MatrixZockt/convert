@@ -67,7 +67,7 @@ Settings come from `CONVERT_SETTINGS`, or `--settings`, using the Mac app's name
 ```bash
 CONVERT_SETTINGS='{"audioBitrate": 192}' convert-file mp3 song.flac
 convert-file --settings '{"videoQuality": 0.8, "hardware": false}' mp4-h264 clip.mov
-convert-file --settings '{"pdfDpi": 300}' pdf-png scan.pdf
+convert-file --settings '{"pdfDPI": 300}' pdf-png scan.pdf
 ```
 
 | Setting | Default | What it does |
@@ -85,7 +85,7 @@ convert-file --settings '{"pdfDpi": 300}' pdf-png scan.pdf
 | `imageQuality` | 0.85 | for JPEG, WebP, AVIF, HEIC, TIFF and PDF |
 | `maxSize` | 0 | longest edge in pixels; 0 keeps the size, never upscales |
 | `paperA4` | true | A4, or US Letter when false |
-| `pdfDpi` | 150 | resolution for PDF → images (72 / 150 / 300) |
+| `pdfDPI` | 150 | resolution for PDF → images (72 / 150 / 300) |
 
 `CONVERT_FALLBACK_DIR` replaces `~/Downloads` as the folder used when the original's folder is
 read-only (a mounted ISO, a read-only share).

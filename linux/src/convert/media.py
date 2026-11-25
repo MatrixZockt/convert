@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 from . import formats, paths, tools
 from .errors import ConvertError
@@ -117,7 +118,7 @@ def hardware_vendor(ffmpeg):
             tools.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
                        "-i", "color=black:s=320x240:d=0.2", "-frames:v", "3",
                        "-c:v", codec, "-pix_fmt", "yuv420p", "-f", "null", "-"],
-                      timeout=15)
+                      timeout=15, check=True)
             vendor = name
             break
         except ConvertError:
@@ -253,8 +254,10 @@ def video_args(target, settings, probed):
     elif target.id == "mp4-av1":
         v += ["-c:v", "libsvtav1", "-crf", str(crf(46, 20)), "-preset", "8"]
 
-    if filters:
-        v += ["-vf", ",".join(filters)]
+    # 4:2:0 and 4:2:2 encoders need even dimensions; a screen recording of a
+    # dragged area often isn't (issue #29). A no-op for even sizes.
+    filters.append("crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0")
+    v += ["-vf", ",".join(filters)]
 
     if settings.keepAudio and probed.has_audio:
         v += ["-map", "0:a:0"] + audio
@@ -281,7 +284,11 @@ def convert(input_path, target, settings, runner, progress):
     if probed.ok and target.group == formats.VIDEO and not probed.has_video:
         raise ConvertError("This file has no video track")
 
-    out = paths.unique_output(input_path, target.ext)
+    # Encoded under a hidden name next to where it will end up (same filesystem,
+    # so the final move is a link, not a copy of a large video), and only moved
+    # to its real name once ffmpeg has finished successfully.
+    folder = paths.folder_for(input_path)
+    out = os.path.join(folder, ".convert-%s.%s" % (uuid.uuid4().hex, target.ext))
 
     def encode(use_hardware):
         # No -y: ffmpeg must never write over a file that appeared after the
@@ -303,11 +310,11 @@ def convert(input_path, target, settings, runner, progress):
                 progress(min(0.99, done["seconds"] / probed.duration))
 
         try:
-            tools.run(args, runner=runner, on_line=line)
-        except ConvertError as e:
+            tools.run(args, runner=runner, on_line=line, check=True)
+        except ConvertError:
             paths.try_delete(out)
-            raise e
-        if not os.path.exists(out):
+            raise
+        if not os.path.exists(out) or os.path.getsize(out) == 0:
             paths.try_delete(out)
             raise ConvertError("ffmpeg wrote nothing")
 
@@ -320,5 +327,10 @@ def convert(input_path, target, settings, runner, progress):
         # A GPU encoder that passed the quick check can still refuse the real
         # job; slower is better than failed.
         encode(False)
+    dest = paths.unique_output(input_path, target.ext)
+    try:
+        paths.move_into_place(out, dest)
+    finally:
+        paths.try_delete(out)
     progress(1.0)
-    return [out]
+    return [dest]

@@ -5,7 +5,7 @@
 #   ./uninstall.sh --prefix /usr/local
 set -euo pipefail
 
-PREFIX="${PREFIX:-$HOME/.local}"
+PREFIX="$HOME/.local"
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) PREFIX="${2:?--prefix needs a folder}"; shift 2 ;;

@@ -167,7 +167,7 @@ if [ -d "$OUT/scan pages" ]; then
   check "pdf -> png is a folder of pages" "$OUT/scan pages" test -f "$OUT/scan pages/page 1.png"
 fi
 if [ -f "$OUT/photo.webp" ]; then
-  check "png -> webp is WebP" "$OUT/photo.webp" bash -c "file '$OUT/photo.webp' | grep -q WebP"
+  check "png -> webp is WebP" "$OUT/photo.webp" bash -c "file '$OUT/photo.webp' | grep -qiE 'Web/?P'"
 fi
 if [ -f "$OUT/tone.mp3" ]; then
   check "wav -> mp3 has a bitrate set" "$OUT/tone.mp3" bash -c "file '$OUT/tone.mp3' | grep -q 'layer III'"

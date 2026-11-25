@@ -80,7 +80,7 @@ def _pages(input_path, target, settings, work, runner, progress):
     if not tools.has("pdftoppm"):
         raise ConvertError("Rendering PDF pages needs poppler-utils "
                            "(for example: sudo apt install poppler-utils)")
-    dpi = int(settings.pdfDpi or 150)
+    dpi = int(settings.pdfDPI or 150)
     dpi = max(36, min(600, dpi))
     quality = int(round(max(0.0, min(1.0, settings.imageQuality)) * 100))
     prefix = os.path.join(work, "page")

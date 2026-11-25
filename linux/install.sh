@@ -9,18 +9,25 @@
 # script is written. Uninstall with ./uninstall.sh (same --prefix).
 set -euo pipefail
 
-PREFIX="${PREFIX:-$HOME/.local}"
+# Not taken from the environment: $PREFIX is set by Termux, conda-build and
+# many build shells, and would silently send the install somewhere else.
+PREFIX="$HOME/.local"
+PREFIX_GIVEN=0
 INTEGRATION=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --prefix) PREFIX="${2:?--prefix needs a folder}"; shift 2 ;;
-    --prefix=*) PREFIX="${1#*=}"; shift ;;
+    --prefix) PREFIX="${2:?--prefix needs a folder}"; PREFIX_GIVEN=1; shift 2 ;;
+    --prefix=*) PREFIX="${1#*=}"; PREFIX_GIVEN=1; shift ;;
     --no-integration) INTEGRATION=0; shift ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
+
+# A system-wide install (usually under sudo) must not write right-click entries
+# into whichever home directory sudo left in $HOME, as root-owned files.
+if [ "$PREFIX_GIVEN" -eq 1 ] || [ "$(id -u)" -eq 0 ]; then INTEGRATION=0; fi
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
@@ -119,7 +126,7 @@ if [ "$INTEGRATION" -eq 1 ]; then
   if [ -d "$DATA/nautilus" ] || [ -d "$DATA/nemo" ] || [ -d "$DATA/kio" ]; then
     : # at least one was installed
   else
-    say "no file manager with a supported scripts/actions menu was found; use \"convert --ui FILE\" instead"
+    say "no file manager with a supported scripts/actions menu was found; use \"convert-file --ui FILE\" instead"
   fi
 fi
 

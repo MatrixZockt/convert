@@ -173,7 +173,7 @@ class TestFormats(unittest.TestCase):
         settings = formats.Settings()
         self.assertEqual(settings.videoQuality, 0.65)
         self.assertEqual(settings.imageQuality, 0.85)
-        self.assertEqual(settings.pdfDpi, 150)
+        self.assertEqual(settings.pdfDPI, 150)
         self.assertTrue(settings.hardware)
         self.assertTrue(settings.keepAudio)
         self.assertTrue(settings.paperA4)
@@ -189,10 +189,10 @@ class TestFormats(unittest.TestCase):
         self.assertIn("videoQulaity", str(caught.exception))
 
     def test_settings_round_trip(self):
-        settings = formats.Settings(videoQuality=0.9, pdfDpi=300)
+        settings = formats.Settings(videoQuality=0.9, pdfDPI=300)
         again = formats.Settings.from_json(settings.to_json())
         self.assertEqual(again.videoQuality, 0.9)
-        self.assertEqual(again.pdfDpi, 300)
+        self.assertEqual(again.pdfDPI, 300)
 
     def test_a_format_needing_a_missing_tool_is_not_offered(self):
         # Whatever the machine has, the answer has to agree with it.

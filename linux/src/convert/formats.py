@@ -342,7 +342,7 @@ class Settings:
         "imageQuality": 0.85,
         "maxSize": 0,           # longest edge in px; 0 = same as source
         "paperA4": True,
-        "pdfDpi": 150,
+        "pdfDPI": 150,
     }
 
     def __init__(self, **values):

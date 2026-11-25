@@ -151,6 +151,11 @@ def _print_to_pdf(page, work, runner):
         # (see `_html_page`), because the flag that would disable them stops
         # the browser printing at all.
         "--host-resolver-rules=MAP * ~NOTFOUND",
+        # ...and, as on Windows, a proxy that isn't there for whatever bypasses
+        # name resolution (an IP address), and no WebRTC outside that proxy.
+        "--proxy-server=http://127.0.0.1:1",
+        "--proxy-bypass-list=<-loopback>",
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
         "--user-data-dir=" + profile,
         "--no-pdf-header-footer",
         "--print-to-pdf=" + out,
@@ -183,6 +188,13 @@ def office_convert(staged, ext, work, runner):
                            "Word, ODT and RTF files. Install it and try again "
                            "(for example: sudo apt install libreoffice-writer)")
     profile = os.path.join(work, "office-profile")
+    # LibreOffice has no offline switch, and it fetches what an HTML page or a
+    # DOCX links to (pictures, stylesheets). Its web traffic honours the proxy
+    # set in the profile, so the throwaway profile gets one that isn't there --
+    # the same guard as the Windows port's DocOffice.cs.
+    os.makedirs(os.path.join(profile, "user"), exist_ok=True)
+    with open(os.path.join(profile, "user", "registrymodifications.xcu"), "w", encoding="utf-8") as f:
+        f.write(_OFFLINE_PROFILE)
     args = [
         soffice,
         "--headless",
@@ -192,17 +204,37 @@ def office_convert(staged, ext, work, runner):
         "--nolockcheck",
         # A throwaway profile: the user's own LibreOffice is never touched, and
         # two conversions can't fight over one lock file.
-        "-env:UserInstallation=file://" + profile,
+        "-env:UserInstallation=file://" + urllib.parse.quote(profile),
         "--convert-to", FILTERS[ext],
         "--outdir", work,
         staged,
     ]
-    code, _, err = tools.run(args, runner=runner)
+    code, _, err = tools.run(args, runner=runner, timeout=180)
     produced = os.path.join(work, paths.stem(staged) + "." + ext)
     if not os.path.exists(produced):
         raise ConvertError("LibreOffice couldn't convert this document: %s"
                            % (tools.last_line(err) or "no output"))
     return produced
+
+
+def _inet(name, value):
+    return ('<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="%s" oor:op="fuse">'
+            "<value>%s</value></prop></item>\n" % (name, value))
+
+
+_OFFLINE_PROFILE = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<oor:items xmlns:oor="http://openoffice.org/2001/registry" '
+    'xmlns:xs="http://www.w3.org/2001/XMLSchema" '
+    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
+    + _inet("ooInetProxyType", "2")            # manual
+    + _inet("ooInetHTTPProxyName", "127.0.0.1")
+    + _inet("ooInetHTTPProxyPort", "1")
+    + _inet("ooInetHTTPSProxyName", "127.0.0.1")
+    + _inet("ooInetHTTPSProxyPort", "1")
+    + _inet("ooInetNoProxy", "")                # loopback too
+    + "</oor:items>\n"
+)
 
 
 # ── Between the other document formats ───────────────────────────────────

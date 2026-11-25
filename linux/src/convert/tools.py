@@ -214,7 +214,7 @@ def _kill_tree(proc):
                 pass
 
 
-def run(cmd, runner=None, timeout=None, on_line=None):
+def run(cmd, runner=None, timeout=None, on_line=None, check=False):
     """Run a command to completion and return ``(code, stdout, stderr)``.
 
     The tool's error output is kept whole (up to 64 KB, so a chatty decoder
@@ -279,7 +279,12 @@ def run(cmd, runner=None, timeout=None, on_line=None):
     if runner is not None and runner.cancelled:
         raise Stopped("Stopped")
 
-    return (proc.returncode, "".join(out_lines), "".join(err_tail))
+    err = "".join(err_tail)
+    if check and proc.returncode != 0:
+        # A tool that failed can still leave an (empty) output behind; the exit
+        # code, not the file, says whether it worked.
+        raise ConvertError(last_line(err) or "%s failed" % os.path.basename(str(cmd[0])))
+    return (proc.returncode, "".join(out_lines), err)
 
 
 def last_line(text):

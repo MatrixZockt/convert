@@ -30,7 +30,7 @@ FORMAT is a target id (mp4-h264, mp3, jpg, pdf-png, font-woff2, ...) or the
 label shown in the picker ("MP4 (H.264)").
 
 Settings come from CONVERT_SETTINGS, or from --settings, as a JSON object:
-  {"audioBitrate": 192, "videoQuality": 0.8, "imageQuality": 0.9, "pdfDpi": 300}
+  {"audioBitrate": 192, "videoQuality": 0.8, "imageQuality": 0.9, "pdfDPI": 300}
 Run "convert-file --help" for the full list.
 
 For a program reading the output (the Files panel does):

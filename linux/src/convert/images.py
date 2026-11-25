@@ -68,7 +68,7 @@ def _cwebp(staged, out, quality, runner):
     """
     try:
         tools.run([tools.find("cwebp"), "-quiet", "-q", str(quality), staged, "-o", out],
-                  runner=runner, timeout=120)
+                  runner=runner, timeout=120, check=True)
     except ConvertError:
         if os.path.exists(out):
             paths.try_delete(out)
@@ -76,7 +76,7 @@ def _cwebp(staged, out, quality, runner):
         if not image:
             raise
         args = [image] + CEILINGS + [staged, "-quality", str(quality), out]
-        tools.run(args, runner=runner)
+        tools.run(args, runner=runner, check=True)
 
 
 def _magick(staged, out, target, settings, quality, original):
